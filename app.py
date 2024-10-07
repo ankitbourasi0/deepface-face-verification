@@ -6,7 +6,10 @@ import uvicorn
 from pydantic import BaseModel
 import os
 from tempfile import NamedTemporaryFile
-
+from PIL import Image
+import io
+import numpy as np
+import shutil
 app = FastAPI(title="DeepFace Image Verification API")
 app.add_middleware(
     CORSMiddleware,
@@ -39,6 +42,52 @@ def detect_face(image_path):
         if "Face could not be detected" in str(e):
             return False
         raise
+
+def is_jpg(file: UploadFile) -> bool:
+    return file.content_type == "image/jpeg"
+
+def save_upload_file_tmp(upload_file: UploadFile) -> str:
+    try:
+        suffix = os.path.splitext(upload_file.filename)[1]
+        with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(upload_file.file, tmp)
+            tmp_path = tmp.name
+        return tmp_path
+    finally:
+        upload_file.file.close()
+
+
+
+@app.post("/compare_faces")
+async def compare_faces(image1: UploadFile = File(...), image2: UploadFile = File(...)):
+    # Validate image format
+    if not (is_jpg(image1) and is_jpg(image2)):
+        raise HTTPException(status_code=400, detail="Both images must be in JPG format")
+
+    try:
+        # Save uploaded files temporarily
+        path1 = save_upload_file_tmp(image1)
+        path2 = save_upload_file_tmp(image2)
+
+        # Check for faces in both images
+        if not (detect_face(path1) and detect_face(path2)):
+            raise HTTPException(status_code=400, detail="Both images must contain a human face")
+
+        # Verify faces and get similarity
+        result = DeepFace.verify(path1, path2, enforce_detection=False,)
+        
+        # Clean up temporary files
+        os.remove(path1)
+        os.remove(path2)
+
+        return JSONResponse(content={"similarity": result["distance"], "same_person": result["verified"]})
+
+    except Exception as e:
+        # Clean up temporary files in case of an error
+        if 'path1' in locals(): os.remove(path1)
+        if 'path2' in locals(): os.remove(path2)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/analyze_single", response_model=ImageAnalysisResult)
 async def analyze_single_image(file: UploadFile = File(...)):
