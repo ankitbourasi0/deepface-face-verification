@@ -74,7 +74,7 @@ async def compare_faces(image1: UploadFile = File(...), image2: UploadFile = Fil
             raise HTTPException(status_code=400, detail="Both images must contain a human face")
 
         # Verify faces and get similarity
-        result = DeepFace.verify(path1, path2, enforce_detection=False,)
+        result = DeepFace.verify(path1, path2, enforce_detection=False)
         
         # Clean up temporary files
         os.remove(path1)
